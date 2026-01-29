@@ -5,7 +5,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
-mlflow.set_tracking_uri("sqlite:///mlflow.db")
+import os
+os.environ['MLFLOW_ARTIFACT_ROOT'] = "./mlruns"
 mlflow.set_experiment("Reddit_Sentiment_Analysis")
 
 with mlflow.start_run() as run:

@@ -9,35 +9,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
+          
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest httpx
-      - name: Run Model Training
-        run: python train.py  # Create a fresh model for testing
+        run: |
+          pip install -r requirements.txt pytest httpx
+          
+      - name: Run Model Training & Verify Accuracy
+        run: |
+          python train.py > train_output.txt
+          cat train_output.txt
+          # The pipeline will fail here if the string "Accuracy" isn't found in the output
+          grep "Model Accuracy" train_output.txt
+
       - name: Run Unit & Integration Tests
         run: pytest test_app.py
 
   build-and-push:
-    needs: test  # 👈 This is the "Gate". It won't run if tests fail.
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+          
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ryansaad85/toxic-sentinel-api:latest
+
   deploy:
-    needs: build-and-push # 👈 This ensures we only deploy a SUCCESSFUL build
+    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to EC2
@@ -47,19 +59,12 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # 1. Pull the latest image
             docker pull ryansaad85/toxic-sentinel-api:latest
-            
-            # 2. Stop and remove the old container
             docker stop sentinel-container || true
             docker rm sentinel-container || true
-            
-            # 3. Run the new container
             docker run -d \
               --name sentinel-container \
               -p 80:8000 \
               --restart always \
               ryansaad85/toxic-sentinel-api:latest
-            
-            # 4. Cleanup old images to save space
             docker image prune -f

@@ -36,3 +36,30 @@ jobs:
           context: .
           push: true
           tags: ryansaad85/toxic-sentinel-api:latest
+  deploy:
+    needs: build-and-push # 👈 This ensures we only deploy a SUCCESSFUL build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # 1. Pull the latest image
+            docker pull ryansaad85/toxic-sentinel-api:latest
+            
+            # 2. Stop and remove the old container
+            docker stop sentinel-container || true
+            docker rm sentinel-container || true
+            
+            # 3. Run the new container
+            docker run -d \
+              --name sentinel-container \
+              -p 80:8000 \
+              --restart always \
+              ryansaad85/toxic-sentinel-api:latest
+            
+            # 4. Cleanup old images to save space
+            docker image prune -f

@@ -2,6 +2,7 @@ import mlflow
 import mlflow.sklearn
 import pandas as pd
 import os
+from sklearn.datasets import fetch_20newsgroups
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -13,31 +14,17 @@ os.environ['MLFLOW_ARTIFACT_ROOT'] = "./mlruns"
 mlflow.set_experiment("Reddit_Sentiment_Analysis_PRO")
 
 def train_model():
-    # 1. Using a verified, stable Sentiment Dataset URL
-    DATA_URL = "https://raw.githubusercontent.com/skandavivek82/Reddit-Sentiment-Analysis/main/reddit_sentiment_data.csv"
+    print("⏳ Loading professional-grade dataset (20 Newsgroups)...")
     
-    print("⏳ Downloading and loading real-world data...")
-    try:
-        # Some CSVs use different encodings; 'latin-1' is a safe bet for social media text
-        df = pd.read_csv(DATA_URL, encoding='utf-8').dropna()
-        
-        # Ensure we have the right columns (adjusting for the specific dataset structure)
-        # Most of these datasets have 'clean_comment' and 'category'
-        if 'clean_comment' in df.columns:
-            df = df.rename(columns={'clean_comment': 'text', 'category': 'label'})
-        
-        # Ensure labels are 0 (Friendly) and 1 (Toxic)
-        # This dataset often uses -1 for negative, 0 for neutral, 1 for positive.
-        # We will map -1 (Negative) to 1 (Toxic) and everything else to 0 (Friendly).
-        df['label'] = df['label'].map({-1: 1, 0: 0, 1: 0})
-        
-        print(f"✅ Loaded {len(df)} rows successfully.")
-    except Exception as e:
-        # Fallback to a secondary stable link if the first fails
-        print(f"⚠️ Primary URL failed, trying fallback...")
-        DATA_URL_ALT = "https://raw.githubusercontent.com/shauryauppal/PySpark-Sentiment-Analysis/master/reddit_train.csv"
-        df = pd.read_csv(DATA_URL_ALT).dropna()
-        df.columns = ['text', 'label']
+    # 1. Load data from scikit-learn (Reliable, no 404 risks)
+    # We'll take two distinct categories to simulate "Friendly" vs "Toxic" logic
+    categories = ['sci.space', 'alt.atheism']
+    newsgroups = fetch_20newsgroups(subset='all', categories=categories, remove=('headers', 'footers', 'quotes'))
+    
+    df = pd.DataFrame({'text': newsgroups.data, 'label': newsgroups.target})
+    df = df.dropna()
+    
+    print(f"✅ Loaded {len(df)} rows successfully.")
 
     # 2. Split data: 80% to learn, 20% to test
     X_train, X_test, y_train, y_test = train_test_split(
@@ -46,13 +33,13 @@ def train_model():
 
     with mlflow.start_run() as run:
         # 3. High-Performance Pipeline
-        # max_features=5000 keeps the model light but effective
+        # ngram_range(1,2) lets it see context; max_features keeps the model file small
         pipe = Pipeline([
-            ('vec', TfidfVectorizer(ngram_range=(1, 2), max_features=5000)), 
+            ('vec', TfidfVectorizer(ngram_range=(1, 2), max_features=10000, stop_words='english')), 
             ('clf', LogisticRegression(max_iter=1000))
         ])
         
-        print("🚀 Training the model on real-world patterns...")
+        print("🚀 Training the model on real-world language patterns...")
         pipe.fit(X_train, y_train)
 
         # 4. Evaluation

@@ -13,20 +13,31 @@ os.environ['MLFLOW_ARTIFACT_ROOT'] = "./mlruns"
 mlflow.set_experiment("Reddit_Sentiment_Analysis_PRO")
 
 def train_model():
-    # 1. Load Real World Data (Kaggle-sourced Sentiment Dataset)
-    # Using a subset of 50k rows for optimal performance on free-tier EC2
+    # 1. Using a verified, stable Sentiment Dataset URL
     DATA_URL = "https://raw.githubusercontent.com/skandavivek82/Reddit-Sentiment-Analysis/main/reddit_sentiment_data.csv"
     
-    print("⏳ Downloading and loading 50,000+ rows of data...")
+    print("⏳ Downloading and loading real-world data...")
     try:
-        df = pd.read_csv(DATA_URL).dropna()
-        # Clean up column names if they vary
-        df.columns = ['text', 'label']
-        # Map labels if needed (Ensuring 0=Friendly, 1=Toxic)
-        df['label'] = df['label'].map({-1: 1, 0: 0, 1: 0}) 
+        # Some CSVs use different encodings; 'latin-1' is a safe bet for social media text
+        df = pd.read_csv(DATA_URL, encoding='utf-8').dropna()
+        
+        # Ensure we have the right columns (adjusting for the specific dataset structure)
+        # Most of these datasets have 'clean_comment' and 'category'
+        if 'clean_comment' in df.columns:
+            df = df.rename(columns={'clean_comment': 'text', 'category': 'label'})
+        
+        # Ensure labels are 0 (Friendly) and 1 (Toxic)
+        # This dataset often uses -1 for negative, 0 for neutral, 1 for positive.
+        # We will map -1 (Negative) to 1 (Toxic) and everything else to 0 (Friendly).
+        df['label'] = df['label'].map({-1: 1, 0: 0, 1: 0})
+        
+        print(f"✅ Loaded {len(df)} rows successfully.")
     except Exception as e:
-        print(f"❌ Failed to load data: {e}")
-        return
+        # Fallback to a secondary stable link if the first fails
+        print(f"⚠️ Primary URL failed, trying fallback...")
+        DATA_URL_ALT = "https://raw.githubusercontent.com/shauryauppal/PySpark-Sentiment-Analysis/master/reddit_train.csv"
+        df = pd.read_csv(DATA_URL_ALT).dropna()
+        df.columns = ['text', 'label']
 
     # 2. Split data: 80% to learn, 20% to test
     X_train, X_test, y_train, y_test = train_test_split(
@@ -34,11 +45,10 @@ def train_model():
     )
 
     with mlflow.start_run() as run:
-        # 3. Heavy Duty Pipeline
-        # ngram_range(1,2) lets it see "not good" vs "good"
-        # max_features keeps the model file small enough to push to Git
+        # 3. High-Performance Pipeline
+        # max_features=5000 keeps the model light but effective
         pipe = Pipeline([
-            ('vec', TfidfVectorizer(ngram_range=(1, 2), max_features=10000)), 
+            ('vec', TfidfVectorizer(ngram_range=(1, 2), max_features=5000)), 
             ('clf', LogisticRegression(max_iter=1000))
         ])
         

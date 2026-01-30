@@ -1,4 +1,75 @@
-- name: Deploy to EC2
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  # 🛡️ STAGE 1: Security (SAST)
+  security_scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Install Bandit
+        run: pip install bandit
+      - name: Run Bandit (SAST)
+        # || true ensures the pipeline continues so you can read the report
+        run: bandit -r . -f txt > security_report.txt || true
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: security_report.txt
+
+  # 🧪 STAGE 2: Testing & Model Training
+  test:
+    needs: security_scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt pytest httpx
+      - name: Run Model Training & Verify Accuracy
+        run: |
+          python train.py > train_output.txt
+          cat train_output.txt
+          grep "Model Accuracy" train_output.txt
+      - name: Run Unit & Integration Tests
+        run: pytest test_app.py
+
+  # 🏗️ STAGE 3: Build & Push to Docker Hub
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ryansaad85/toxic-sentinel-api:latest
+
+  # 🚀 STAGE 4: Secure Deployment
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -8,10 +79,11 @@
             docker pull ryansaad85/toxic-sentinel-api:latest
             docker stop sentinel-container || true
             docker rm sentinel-container || true
-            # Run on internal port 8000 so Nginx can proxy to it
+            # Bind to 127.0.0.1 so Nginx can safely proxy traffic to it
             docker run -d \
               --name sentinel-container \
               -p 127.0.0.1:8000:8000 \
               --restart always \
               ryansaad85/toxic-sentinel-api:latest
+            # Clean up old images to save space on EC2
             docker image prune -f

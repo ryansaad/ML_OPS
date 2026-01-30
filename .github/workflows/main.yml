@@ -1,72 +1,4 @@
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches: [ "main" ]
-
-jobs:
-  security_scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-      - name: Install Bandit
-        run: pip install bandit
-      - name: Run Bandit (SAST)
-        # We use || true so the pipeline continues, but we still get the report. 
-        # In a strict production environment, you'd remove '|| true' to block insecure code.
-        run: bandit -r . -f txt > security_report.txt || true
-      - name: Upload Security Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-report
-          path: security_report.txt
-
-  test:
-    needs: security_scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt pytest httpx
-      - name: Run Model Training & Verify Accuracy
-        run: |
-          python train.py > train_output.txt
-          cat train_output.txt
-          grep "Model Accuracy" train_output.txt
-      - name: Run Unit & Integration Tests
-        run: pytest test_app.py
-
-  build-and-push:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Build and Push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ryansaad85/toxic-sentinel-api:latest
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to EC2
+- name: Deploy to EC2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -76,9 +8,10 @@ jobs:
             docker pull ryansaad85/toxic-sentinel-api:latest
             docker stop sentinel-container || true
             docker rm sentinel-container || true
+            # Run on internal port 8000 so Nginx can proxy to it
             docker run -d \
               --name sentinel-container \
-              -p 80:8000 \
+              -p 127.0.0.1:8000:8000 \
               --restart always \
               ryansaad85/toxic-sentinel-api:latest
             docker image prune -f
